@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/codeshelldev/gotl/pkg/logger"
+	loggerpkg "github.com/codeshelldev/gotl/pkg/logger"
 	"github.com/codeshelldev/gotl/pkg/request"
 	"github.com/codeshelldev/secured-signal-api/internals/config/structure"
 	. "github.com/codeshelldev/secured-signal-api/internals/proxy/common"
@@ -15,7 +15,7 @@ import (
 
 var RequestLogger Middleware = Middleware{
 	Name: "Logging",
-	Use: loggingHandler,
+	Use:  loggingHandler,
 }
 
 func loggingHandler(next http.Handler) http.Handler {
@@ -26,17 +26,26 @@ func loggingHandler(next http.Handler) http.Handler {
 
 		decodedQuery, _ := url.QueryUnescape(req.URL.RawQuery)
 
-		if !logger.IsDev() {
-			logger.Info(ip.String(), " ", req.Method, " ", req.URL.Path, " ", decodedQuery)
-		} else {
-			body, _ := request.GetReqBody(req)
+		logMessage := []any{
+			ip.String(),
+			" ",
+			req.Method,
+			" ",
+			req.URL.Path,
+			" ",
+			decodedQuery,
+		}
 
-			if body.Data != nil && !body.Empty {
-				logger.Dev(ip.String(), " ", req.Method, " ", req.URL.Path, " ", decodedQuery, body.Data)
-			} else {
-				logger.Info(ip.String(), " ", req.Method, " ", req.URL.Path, " ", decodedQuery)
+		shouldLogBody := req.Method == http.MethodPost && req.URL.Path == "/v2/send"
+		if shouldLogBody {
+			body, err := request.GetReqBody(req)
+
+			if err == nil && body.Data != nil && !body.Empty {
+				logMessage = append(logMessage, " ", loggerpkg.FormatAsDataWithJSON(body.Data))
 			}
 		}
+
+		logger.Info(logMessage...)
 
 		next.ServeHTTP(w, req)
 	})
@@ -44,7 +53,7 @@ func loggingHandler(next http.Handler) http.Handler {
 
 var InternalMiddlewareLogger Middleware = Middleware{
 	Name: "_Middleware_Logger",
-	Use: middlewareLoggerHandler,
+	Use:  middlewareLoggerHandler,
 }
 
 func middlewareLoggerHandler(next http.Handler) http.Handler {
@@ -57,10 +66,10 @@ func middlewareLoggerHandler(next http.Handler) http.Handler {
 			logLevel = conf.SERVICE.LOG_LEVEL
 		}
 
-		l := logger.Get()
+		l := loggerpkg.Get()
 
 		if strings.TrimSpace(logLevel) != "" {
-			l = logger.Get().Sub(logLevel)
+			l = loggerpkg.Get().Sub(logLevel)
 
 			transforms := logging.DefaultTransforms()
 			transforms = append(transforms, func(content string) string {
