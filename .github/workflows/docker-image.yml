@@ -51,3 +51,6 @@ jobs:
         with:
           registry: ghcr.io
           token: ${{ secrets.GITHUB_TOKEN }}
+          tags: |
+            type=raw,value=latest
+            type=raw,value=${{ github.ref_name }}
