@@ -30,10 +30,10 @@ func catchPanic(fn func()) {
 			switch v := r.(type) {
 			case error:
 			default:
-				prettylog.GenericErrorWith("{b,fg=red}🚨 PANIC 🚨{/}", errors.New("encountered a panic:\n\n" + fmt.Sprint(v)), prettylog.StackOptions{
+				prettylog.GenericErrorWith("{b,fg=red}🚨 PANIC 🚨{/}", errors.New("encountered a panic:\n\n"+fmt.Sprint(v)), prettylog.StackOptions{
 					Count: 8,
 					Under: 2,
-					From: 3,
+					From:  3,
 				})
 			}
 		}
@@ -76,7 +76,7 @@ Why Matrix and not Discord? It is the {i}opensource way{/}! 📭️
 			},
 		},
 	})
-	
+
 	fmt.Println(box.Render())
 
 	config.Load()
@@ -85,6 +85,10 @@ Why Matrix and not Discord? It is the {i}opensource way{/}! 📭️
 
 	if config.DEFAULT.SERVICE.LOG_LEVEL != logger.Level() {
 		logging.Init(config.DEFAULT.SERVICE.LOG_LEVEL)
+	}
+
+	if err := logging.ConfigureFile(config.DEFAULT.SERVICE.LOG_FILE); err != nil {
+		logger.Error("Could not configure log file: ", err.Error())
 	}
 
 	logger.Info("Initialized Logger with Level of ", logger.Level())
@@ -136,5 +140,6 @@ Why Matrix and not Discord? It is the {i}opensource way{/}! 📭️
 	<-stop
 
 	db.Close()
+	logging.CloseFile()
 	docker.Shutdown(server)
 }

@@ -1,15 +1,24 @@
 package logging
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/codeshelldev/gotl/pkg/logger"
 	"github.com/codeshelldev/secured-signal-api/internals/config"
 )
 
-func DefaultTransforms() []func(string)string {
-	transforms := []func(string)string{}
+var fileLog struct {
+	sync.Mutex
+	file *os.File
+}
+
+func DefaultTransforms() []func(string) string {
+	transforms := []func(string) string{}
 
 	transforms = append(transforms, BeginWithCapital)
 
@@ -17,7 +26,29 @@ func DefaultTransforms() []func(string)string {
 		transforms = append(transforms, RedactTokens())
 	}
 
+	fileLog.Lock()
+	fileEnabled := fileLog.file != nil
+	fileLog.Unlock()
+	if fileEnabled {
+		transforms = append(transforms, writeFileLog)
+	}
+
 	return transforms
+}
+
+func writeFileLog(content string) string {
+	content = strings.NewReplacer("\r", "\\r", "\n", "\\n").Replace(content)
+
+	fileLog.Lock()
+	defer fileLog.Unlock()
+
+	if fileLog.file != nil {
+		if _, err := fmt.Fprintln(fileLog.file, content); err != nil {
+			_, _ = fmt.Fprintln(os.Stderr, "Could not write log file: ", err)
+		}
+	}
+
+	return content
 }
 
 func Init(level string) {
@@ -25,6 +56,42 @@ func Init(level string) {
 
 	logger.InitWith(level, options)
 	logger.InitStdLoggerWith(level, options)
+}
+
+func ConfigureFile(path string) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
+		return err
+	}
+
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0640)
+	if err != nil {
+		return err
+	}
+
+	fileLog.Lock()
+	defer fileLog.Unlock()
+
+	if fileLog.file != nil {
+		_ = fileLog.file.Close()
+	}
+
+	fileLog.file = file
+	return nil
+}
+
+func CloseFile() {
+	fileLog.Lock()
+	defer fileLog.Unlock()
+
+	if fileLog.file != nil {
+		_ = fileLog.file.Close()
+		fileLog.file = nil
+	}
 }
 
 func Setup() {
@@ -63,12 +130,12 @@ func Redact(redact string) string {
 	repeatTimes := 10
 
 	revealLeft := string(redact[:left])
-	revealRight := string(redact[len(redact) - right:])
+	revealRight := string(redact[len(redact)-right:])
 
 	redactedStr := strings.Repeat("*", repeatTimes)
 
-	if len(redact) - left - right - repeatTimes > 0 {
-		redactedStr = strings.Repeat("*", repeatTimes + 4) + "(" + strconv.Itoa(len(redact)) + ")" + strings.Repeat("*", repeatTimes - 4)
+	if len(redact)-left-right-repeatTimes > 0 {
+		redactedStr = strings.Repeat("*", repeatTimes+4) + "(" + strconv.Itoa(len(redact)) + ")" + strings.Repeat("*", repeatTimes-4)
 	}
 
 	return revealLeft + redactedStr + revealRight
@@ -77,7 +144,7 @@ func Redact(redact string) string {
 func RedactWords(replaceBy rune, words ...string) func(string) string {
 	return func(content string) string {
 		for _, word := range words {
-			content = strings.ReplaceAll(content, word, "[" + Redact(word) + "]")
+			content = strings.ReplaceAll(content, word, "["+Redact(word)+"]")
 		}
 
 		return content

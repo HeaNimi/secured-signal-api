@@ -5,6 +5,7 @@ api:
 service:
   port: 8880
   logLevel: info
+  logFile: ""
 
 settings:
   message:

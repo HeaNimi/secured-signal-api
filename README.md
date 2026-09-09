@@ -319,6 +319,7 @@ This example config shows all the individual settings that can be applied:
 ## Example Config (all configurations shown)
 service:
   logLevel: info
+  logFile: ""
   port: 8880
   hostnames:
     - mydomain.com

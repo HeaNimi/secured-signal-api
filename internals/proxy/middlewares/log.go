@@ -1,6 +1,7 @@
 package middlewares
 
 import (
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/url"
@@ -25,6 +26,7 @@ func loggingHandler(next http.Handler) http.Handler {
 		ip := GetContext[net.IP](req, ClientIPKey)
 
 		decodedQuery, _ := url.QueryUnescape(req.URL.RawQuery)
+		decodedQuery = strings.NewReplacer("\r", "\\r", "\n", "\\n").Replace(decodedQuery)
 
 		logMessage := []any{
 			ip.String(),
@@ -41,7 +43,11 @@ func loggingHandler(next http.Handler) http.Handler {
 			body, err := request.GetReqBody(req)
 
 			if err == nil && body.Data != nil && !body.Empty {
-				logMessage = append(logMessage, " ", loggerpkg.FormatAsDataWithJSON(body.Data))
+				bodyJSON, err := json.Marshal(body.Data)
+
+				if err == nil {
+					logMessage = append(logMessage, " ", string(bodyJSON))
+				}
 			}
 		}
 
@@ -77,6 +83,8 @@ func middlewareLoggerHandler(next http.Handler) http.Handler {
 			})
 
 			l.SetTransform(logging.Apply(transforms...))
+		} else {
+			l.SetTransform(logging.Apply(logging.DefaultTransforms()...))
 		}
 
 		req = SetContext(req, LoggerKey, l)
