@@ -40,10 +40,12 @@ const (
 )
 
 type SERVICE struct {
-	HOSTNAMES t.Opt[[]string] `koanf:"hostnames"          env>aliases:".hostnames"`
-	PORT      string          `koanf:"port"               env>aliases:".port"`
-	LOG_LEVEL string          `koanf:"loglevel"           env>aliases:".loglevel"`
-	LOG_FILE  string          `koanf:"logfile"            env>aliases:".logfile"`
+	HOSTNAMES     t.Opt[[]string] `koanf:"hostnames"          env>aliases:".hostnames"`
+	PORT          string          `koanf:"port"               env>aliases:".port"`
+	LOG_LEVEL     string          `koanf:"loglevel"           env>aliases:".loglevel"`
+	LOG_FILE      string          `koanf:"logfile"            env>aliases:".logfile"`
+	LOG_MAX_SIZE  int64           `koanf:"logmaxsize"         env>aliases:".logmaxsize"`
+	LOG_MAX_FILES int             `koanf:"logmaxfiles"        env>aliases:".logmaxfiles"`
 }
 
 type API struct {

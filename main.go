@@ -87,7 +87,11 @@ Why Matrix and not Discord? It is the {i}opensource way{/}! 📭️
 		logging.Init(config.DEFAULT.SERVICE.LOG_LEVEL)
 	}
 
-	if err := logging.ConfigureFile(config.DEFAULT.SERVICE.LOG_FILE); err != nil {
+	if err := logging.ConfigureFile(
+		config.DEFAULT.SERVICE.LOG_FILE,
+		config.DEFAULT.SERVICE.LOG_MAX_SIZE,
+		config.DEFAULT.SERVICE.LOG_MAX_FILES,
+	); err != nil {
 		logger.Error("Could not configure log file: ", err.Error())
 	}
 
@@ -139,7 +143,8 @@ Why Matrix and not Discord? It is the {i}opensource way{/}! 📭️
 
 	<-stop
 
+	scheduler.Stop()
+	docker.Shutdown(server)
 	db.Close()
 	logging.CloseFile()
-	docker.Shutdown(server)
 }

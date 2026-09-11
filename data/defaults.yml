@@ -6,6 +6,8 @@ service:
   port: 8880
   logLevel: info
   logFile: ""
+  logMaxSize: 0
+  logMaxFiles: 5
 
 settings:
   message:

@@ -320,6 +320,8 @@ This example config shows all the individual settings that can be applied:
 service:
   logLevel: info
   logFile: ""
+  logMaxSize: 0
+  logMaxFiles: 5
   port: 8880
   hostnames:
     - mydomain.com

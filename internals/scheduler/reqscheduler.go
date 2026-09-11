@@ -30,7 +30,9 @@ const recoveryThreshold = 10 * time.Minute
 const doneStaleThreshold = 24 * time.Hour
 
 func Stop() {
-	cancel()
+	if cancel != nil {
+		cancel()
+	}
 }
 
 func StartRequestScheduler() {
@@ -47,18 +49,23 @@ func StartRequestScheduler() {
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 
-		for range ticker.C {
-			rsdb.RecoverStales(recoveryThreshold)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				rsdb.RecoverStales(recoveryThreshold)
 
-			if reqscheduler.Len() < limit {
-				UpdateQueue()
+				if reqscheduler.Len() < limit {
+					UpdateQueue()
+				}
 			}
 		}
 	}()
 }
 
 func UpdateQueue() {
-	requests, _ := rsdb.FetchNext(limit - reqscheduler.Len(), withinTime)
+	requests, _ := rsdb.FetchNext(limit-reqscheduler.Len(), withinTime)
 
 	for _, req := range requests {
 		AddToQueue(req)
@@ -116,12 +123,12 @@ func ScheduleRequest(tm time.Time, req *http.Request) (string, error) {
 	id := uuid.NewString()
 
 	scheduledReq := &db.ScheduledRequest{
-		ID: id,
-		Method: req.Method,
-		URL: req.URL.String(),
-		Headers: req.Header,
-		Body: body,
-		RunAt: tm,
+		ID:        id,
+		Method:    req.Method,
+		URL:       req.URL.String(),
+		Headers:   req.Header,
+		Body:      body,
+		RunAt:     tm,
 		CreatedAt: time.Now(),
 	}
 
@@ -148,7 +155,7 @@ func HandleScheduledRequest(req *db.ScheduledRequest) {
 	if err != nil {
 		rsdb.SetStatus(req.ID, db.STATUS_FAILED)
 		rsdb.SetResponse(req.ID, err, result)
-		
+
 		logger.Error("Could not send scheduled request: ", err.Error())
 		return
 	}
@@ -180,7 +187,7 @@ func HandleScheduledRequest(req *db.ScheduledRequest) {
 			req.Method, " ", URL.Path, " ", URL.RawQuery,
 		)
 	} else {
-		if len(req.Body) != 0{
+		if len(req.Body) != 0 {
 			logger.Dev("Fired request",
 				" from ", req.CreatedAt.Local().Format("02.01.06 15:04:05"), ": ",
 				req.Method, " ", URL.Path, " ", URL.RawQuery,
@@ -196,8 +203,8 @@ func HandleScheduledRequest(req *db.ScheduledRequest) {
 }
 
 func fireScheduledRequest(req *db.ScheduledRequest) (*http.Response, error) {
-    httpReq, _ := http.NewRequest(req.Method, req.URL, bytes.NewReader(req.Body))
-	
+	httpReq, _ := http.NewRequest(req.Method, req.URL, bytes.NewReader(req.Body))
+
 	request.CopyHeaders(httpReq.Header, req.Headers)
 
 	client := &http.Client{}

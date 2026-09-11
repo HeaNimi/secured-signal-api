@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,7 +15,11 @@ import (
 
 var fileLog struct {
 	sync.Mutex
-	file *os.File
+	file        *os.File
+	path        string
+	maxSize     int64
+	maxFiles    int
+	currentSize int64
 }
 
 func DefaultTransforms() []func(string) string {
@@ -38,13 +43,25 @@ func DefaultTransforms() []func(string) string {
 
 func writeFileLog(content string) string {
 	content = strings.NewReplacer("\r", "\\r", "\n", "\\n").Replace(content)
+	line := content + "\n"
 
 	fileLog.Lock()
 	defer fileLog.Unlock()
 
 	if fileLog.file != nil {
-		if _, err := fmt.Fprintln(fileLog.file, content); err != nil {
+		if fileLog.maxSize > 0 && fileLog.currentSize > 0 && fileLog.currentSize+int64(len(line)) > fileLog.maxSize {
+			if err := rotateLocked(); err != nil {
+				_, _ = fmt.Fprintln(os.Stderr, "Could not rotate log file: ", err)
+				if reopenErr := reopenLocked(); reopenErr != nil {
+					_, _ = fmt.Fprintln(os.Stderr, "Could not reopen log file: ", reopenErr)
+				}
+			}
+		}
+
+		if _, err := fileLog.file.WriteString(line); err != nil {
 			_, _ = fmt.Fprintln(os.Stderr, "Could not write log file: ", err)
+		} else {
+			fileLog.currentSize += int64(len(line))
 		}
 	}
 
@@ -58,7 +75,7 @@ func Init(level string) {
 	logger.InitStdLoggerWith(level, options)
 }
 
-func ConfigureFile(path string) error {
+func ConfigureFile(path string, maxSize int64, maxFiles int) error {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return nil
@@ -72,6 +89,11 @@ func ConfigureFile(path string) error {
 	if err != nil {
 		return err
 	}
+	info, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return err
+	}
 
 	fileLog.Lock()
 	defer fileLog.Unlock()
@@ -81,6 +103,116 @@ func ConfigureFile(path string) error {
 	}
 
 	fileLog.file = file
+	fileLog.path = path
+	fileLog.maxSize = maxSize
+	fileLog.maxFiles = maxFiles
+	if maxSize > 0 && fileLog.maxFiles < 1 {
+		fileLog.maxFiles = 1
+	}
+	fileLog.currentSize = info.Size()
+	return nil
+}
+
+func reopenLocked() error {
+	if fileLog.path == "" {
+		return nil
+	}
+
+	if fileLog.file != nil {
+		_ = fileLog.file.Close()
+	}
+
+	file, err := os.OpenFile(fileLog.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0640)
+	if err != nil {
+		fileLog.file = nil
+		return err
+	}
+
+	info, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		fileLog.file = nil
+		return err
+	}
+
+	fileLog.file = file
+	fileLog.currentSize = info.Size()
+	return nil
+}
+
+func rotateLocked() error {
+	if fileLog.file == nil || fileLog.path == "" {
+		return nil
+	}
+
+	if err := fileLog.file.Close(); err != nil {
+		return err
+	}
+
+	for index := fileLog.maxFiles - 1; index >= 1; index-- {
+		oldPath := rotatedPath(index)
+		newPath := rotatedPath(index + 1)
+
+		if _, err := os.Stat(oldPath); os.IsNotExist(err) {
+			continue
+		}
+		if err := os.Remove(newPath); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		if err := os.Rename(oldPath, newPath); err != nil {
+			return err
+		}
+	}
+
+	if fileLog.maxFiles > 0 {
+		if err := os.Remove(rotatedPath(1)); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		if err := os.Rename(fileLog.path, rotatedPath(1)); err != nil {
+			return err
+		}
+	}
+
+	if err := reopenLocked(); err != nil {
+		return err
+	}
+	fileLog.currentSize = 0
+	return pruneRotatedFilesLocked()
+}
+
+func rotatedPath(index int) string {
+	return fmt.Sprintf("%s.%d", fileLog.path, index)
+}
+
+func pruneRotatedFilesLocked() error {
+	if fileLog.maxFiles < 1 {
+		return nil
+	}
+
+	entries, err := os.ReadDir(filepath.Dir(fileLog.path))
+	if err != nil {
+		return err
+	}
+
+	prefix := filepath.Base(fileLog.path) + "."
+	var rotated []string
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), prefix) {
+			rotated = append(rotated, entry.Name())
+		}
+	}
+	sort.Slice(rotated, func(left, right int) bool {
+		leftIndex, _ := strconv.Atoi(strings.TrimPrefix(rotated[left], prefix))
+		rightIndex, _ := strconv.Atoi(strings.TrimPrefix(rotated[right], prefix))
+		return leftIndex < rightIndex
+	})
+
+	for len(rotated) > fileLog.maxFiles {
+		if err := os.Remove(filepath.Join(filepath.Dir(fileLog.path), rotated[0])); err != nil {
+			return err
+		}
+		rotated = rotated[1:]
+	}
 	return nil
 }
 
@@ -92,6 +224,26 @@ func CloseFile() {
 		_ = fileLog.file.Close()
 		fileLog.file = nil
 	}
+	fileLog.path = ""
+	fileLog.currentSize = 0
+}
+
+func RotateFile() error {
+	fileLog.Lock()
+	defer fileLog.Unlock()
+
+	if fileLog.file == nil {
+		return nil
+	}
+
+	return rotateLocked()
+}
+
+func ReopenFile() error {
+	fileLog.Lock()
+	defer fileLog.Unlock()
+
+	return reopenLocked()
 }
 
 func Setup() {
